@@ -16,7 +16,7 @@
 
 // ==================== 配置 ====================
 
-const SECRET_KEY = 'your-fixed-secret-key-here'; // ← 改成你自己的密钥
+const SECRET_KEY = 'SECRET_KEY..';               // 固定密钥
 const KV_NAMESPACE = 'shortlinks';               // ← KV 命名空间（需先在控制台创建）
 const SHORT_LENGTH = 8;                          // 短码长度
 const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_';
@@ -90,9 +90,15 @@ function isValidCode(s) {
 // ==================== 核心业务 ====================
 
 async function handleRedirect(edgeKv, code) {
-  const raw = await edgeKv.get(code, { type: 'text' });
+  let raw;
+  try {
+    raw = await edgeKv.get(code, { type: 'text' });
+  } catch {
+    return json({ error: '短链接不存在' }, 404);
+  }
 
-  if (raw === undefined) {
+  // 兼容多种 falsy 返回值（undefined / null / ''）
+  if (!raw) {
     return json({ error: '短链接不存在' }, 404);
   }
 
@@ -142,16 +148,18 @@ async function handleCreate(edgeKv, body, origin) {
     if (!isValidCode(code)) {
       return json({ error: '自定义短码格式不合法，需为 \\w{8}' }, 400);
     }
-    const exist = await edgeKv.get(code, { type: 'text' });
-    if (exist !== undefined) {
+    let exist;
+    try { exist = await edgeKv.get(code, { type: 'text' }); } catch { exist = null; }
+    if (exist) {
       return json({ error: '该短码已被占用' }, 409);
     }
   } else {
     // 自动生成（带碰撞重试）
     for (let i = 0; i < MAX_RETRY; i++) {
       code = genCode(SHORT_LENGTH);
-      const exist = await edgeKv.get(code, { type: 'text' });
-      if (exist === undefined) break;
+      let exist;
+      try { exist = await edgeKv.get(code, { type: 'text' }); } catch { exist = null; }
+      if (!exist) break;  // falsy = key 不存在，可用
       code = '';
     }
     if (!code) {
@@ -197,8 +205,9 @@ async function handleDelete(edgeKv, body) {
     return json({ error: '短码格式不合法，需为 \\w{8}' }, 400);
   }
 
-  const raw = await edgeKv.get(code, { type: 'text' });
-  if (raw === undefined) {
+  let raw;
+  try { raw = await edgeKv.get(code, { type: 'text' }); } catch { raw = null; }
+  if (!raw) {
     return json({ error: '短链接不存在' }, 404);
   }
 
